@@ -34,51 +34,60 @@ target.build_configurations.each do |config|
   config.build_settings['CODE_SIGN_IDENTITY'] = ''
   config.build_settings['INFOPLIST_FILE'] = "#{product_name}/Info.plist"
   config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = '$(inherited) @executable_path/Frameworks'
-  config.build_settings['SWIFT_VERSION'] = '5.0'
   config.build_settings['DEVELOPMENT_TEAM'] = ''
+  config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+  config.build_settings['CLANG_ENABLE_OBJC_ARC'] = 'YES'
+  config.build_settings['COMBINE_HIDPI_IMAGES'] = 'NO'
 end
 
 # App 源码目录
 app_dir = File.join(project_dir, product_name)
 FileUtils.mkdir_p(app_dir)
 
-# main.swift - tvOS 入口 + WKWebView
-main_swift = <<~SWIFT
-import UIKit
-import WebKit
+# main.m - tvOS Objective-C 入口 + WKWebView（比 Swift 更易解析系统模块）
+main_m = <<~OBJC
+#import <UIKit/UIKit.h>
+#import <WebKit/WebKit.h>
 
-@main
-class AppDelegate: UIResponder, UIApplicationDelegate {
-    var window: UIWindow?
+@interface AppDelegate : UIResponder <UIApplicationDelegate>
+@property (strong, nonatomic) UIWindow *window;
+@end
 
-    func application(_ application: UIApplication,
-                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        window = UIWindow(frame: UIScreen.main.bounds)
+@implementation AppDelegate
+- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
 
-        let webConfig = WKWebViewConfiguration()
-        webConfig.allowsInlineMediaPlayback = true
-        webConfig.mediaPlaybackRequiresUserAction = false
-        webConfig.allowsAirPlayForMediaPlayback = true
+    WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
+    config.allowsInlineMediaPlayback = YES;
+    config.mediaPlaybackRequiresUserAction = NO;
+    config.allowsAirPlayForMediaPlayback = YES;
 
-        let webView = WKWebView(frame: UIScreen.main.bounds, configuration: webConfig)
-        webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        webView.backgroundColor = .black
-        webView.scrollView.bounces = false
+    WKWebView *webView = [[WKWebView alloc] initWithFrame:[[UIScreen mainScreen] bounds] configuration:config];
+    webView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    webView.backgroundColor = [UIColor blackColor];
+    webView.scrollView.bounces = NO;
 
-        if let indexURL = Bundle.main.url(forResource: "index", withExtension: "html") {
-            webView.loadFileURL(indexURL, allowingReadAccessTo: indexURL.deletingLastPathComponent())
-        }
+    NSURL *indexURL = [[NSBundle mainBundle] URLForResource:@"index" withExtension:@"html"];
+    if (indexURL) {
+        [webView loadFileURL:indexURL allowingReadAccessToURL:[indexURL URLByDeletingLastPathComponent]];
+    }
 
-        let vc = UIViewController()
-        vc.view = webView
-        window?.rootViewController = vc
-        window?.makeKeyAndVisible()
-        return true
+    UIViewController *vc = [[UIViewController alloc] init];
+    vc.view = webView;
+    self.window.rootViewController = vc;
+    [self.window makeKeyAndVisible];
+    return YES;
+}
+@end
+
+int main(int argc, char *argv[]) {
+    @autoreleasepool {
+        return UIApplicationMain(argc, argv, nil, NSStringFromClass([AppDelegate class]));
     }
 }
-SWIFT
+OBJC
 
-File.write(File.join(app_dir, 'main.swift'), main_swift)
+File.write(File.join(app_dir, 'main.m'), main_m)
 
 # Info.plist
 info_plist = <<~PLIST
@@ -129,7 +138,7 @@ FileUtils.cp_r(File.join(web_dist, '.'), public_dir)
 puts "Copied web assets: #{Dir.entries(public_dir).inspect}"
 
 # 把源码和资源加进 target
-main_file_ref = main_group.new_reference('main.swift')
+main_file_ref = main_group.new_reference('main.m')
 target.add_file_references([main_file_ref])
 
 # 显式 link WebKit / UIKit / Foundation 系统框架
