@@ -1,8 +1,6 @@
 # =============================================================================
 # 构建未签名 tvOS IPA（Apple TV, tvOS 27）
-#
-# 闭环设计：CI 自动安装 Capacitor、自动 `cap add tvos` 生成原生工程、
-# 自动 build、自动打 IPA。无需本地 Mac 预生成 Xcode 工程。
+# 闭环：CI 自动装 Capacitor、自动 cap add tvos、自动 build、自动打 IPA
 # =============================================================================
 name: Build tvOS IPA (Unsigned)
 
@@ -10,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       configuration:
-        description: '构建配置（Debug / Release）'
+        description: 'Build configuration'
         required: false
         type: choice
         default: Release
@@ -29,112 +27,80 @@ jobs:
     env:
       NODE_VERSION: '22'
       APP_NAME: 'momo-music'
-      APP_ID: 'com.klzbw.momomusic'
       SCHEME: 'App'
-      TVOS_DEPLOYMENT_TARGET: '17.0'
 
     steps:
-      - name: 检出代码
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 安装 Node.js ${{ env.NODE_VERSION }}
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: 检查 Xcode 与 tvOS SDK
+      - name: Xcode version
         shell: bash
         run: |
           set -e
           xcodebuild -version
           xcodebuild -showsdks | grep appletvos || echo "no appletvos sdk listed"
 
-      - name: 安装项目依赖
+      - name: Install project deps
         shell: bash
         run: |
           set -e
-          # 不跑 electron 原生编译，只装 web 依赖
           npm install -g yarn@1.22.22
           yarn install --ignore-scripts || true
 
-      - name: 安装 Capacitor 6
+      - name: Install Capacitor 6
         shell: bash
         run: |
           set -e
-          yarn add @capacitor/core@^6.2.0
-          yarn add -D @capacitor/cli@^6.2.0 @capacitor/ios@^6.2.0
-          # tvOS platform 从官方包安装
+          yarn add @capacitor/core@^6.2.0 || true
+          yarn add -D @capacitor/cli@^6.2.0 @capacitor/ios@^6.2.0 || true
           yarn add -D @capacitor/tvos@^6.0.0 || npm install -D @capacitor/tvos@^6.0.0 || true
           npx cap --version
 
-      - name: 准备 web 产物（vite build，失败不阻断）
+      - name: Build web assets
         shell: bash
         run: |
           set -e
-          npx vite build || echo "vite build failed, using placeholder web"
-          # 如果 vite build 失败，放一个最小 index.html 让 Capacitor 有东西可包
-          if [ ! -d dist ] || [ ! -f dist/index.html ]; then
+          npx vite build || echo "vite build failed, using placeholder"
+          if [ ! -f dist/index.html ]; then
             mkdir -p dist
-            cat > dist/index.html <<'HTML'
-<!doctype html><html><head><meta charset="utf-8"><title>momo-music</title></head>
-<body><h1>momo-music tvOS</h1><p>Placeholder</p></body></html>
-HTML
+            echo '<!doctype html><html><head><meta charset="utf-8"><title>momo-music</title></head><body><h1>momo-music tvOS</h1></body></html>' > dist/index.html
           fi
           ls -la dist
 
-      - name: 写入 capacitor.config.ts
-        shell: bash
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -e
-          cat > capacitor.config.ts <<'TS'
-          import type { CapacitorConfig } from '@capacitor/cli';
-          const config: CapacitorConfig = {
-            appId: 'com.klzbw.momomusic',
-            appName: 'momo-music',
-            webDir: 'dist',
-          };
-          export default config;
-          TS
-          cat capacitor.config.ts
-
-      - name: 初始化 tvOS 原生工程
+      - name: Add tvOS platform
         shell: bash
         run: |
           set -e
-          # 如果 tvos/ 目录不存在就生成
-          if [ ! -d tvos ]; then
-            echo "=== npx cap add tvos ==="
-            npx cap add tvos || {
-              echo "cap add tvos 失败，尝试 ios 作为后备"
-              npx cap add ios || exit 1
-            }
-          else
-            echo "tvos/ 已存在，跳过 add"
+          if [ ! -d tvos ] && [ ! -d ios ]; then
+            npx cap add tvos || npx cap add ios || exit 1
           fi
           ls -la
 
-      - name: Capacitor sync tvos
+      - name: Cap sync
         shell: bash
         run: |
           set -e
           npx cap sync tvos || npx cap sync ios || true
 
-      - name: 定位 Xcode workspace
+      - name: Locate Xcode workspace
         id: locate
         shell: bash
         run: |
           set -e
           WS=$(find . -name "App.xcworkspace" -type d | head -n1)
           if [ -z "$WS" ]; then
-            echo "::error::未找到 App.xcworkspace"
+            echo "::error::no App.xcworkspace found"
             exit 1
           fi
           echo "workspace=$WS" >> $GITHUB_OUTPUT
-          echo "找到 workspace: $WS"
-          ls -la "$(dirname "$WS")"
+          echo "workspace: $WS"
 
-      - name: 构建 tvOS .app（未签名）
+      - name: Build unsigned .app
         shell: bash
         run: |
           set -e
@@ -151,35 +117,33 @@ HTML
             ONLY_ACTIVE_ARCH=NO \
             BUILD_DIR="${{ github.workspace }}/build"
 
-      - name: 打包为未签名 IPA
+      - name: Package IPA
         shell: bash
         run: |
           set -e
           mkdir -p Payload
           APP_PATH=$(find build -name "*.app" -type d | head -n 1)
           if [ -z "${APP_PATH}" ]; then
-            echo "::error::未在 build/ 下找到任何 .app 产物"
+            echo "::error::no .app found"
             exit 1
           fi
-          echo "找到 .app 产物：${APP_PATH}"
           cp -R "${APP_PATH}" Payload/
           zip -r "${APP_NAME}-tvos-unsigned.ipa" Payload
           ls -lh "${APP_NAME}-tvos-unsigned.ipa"
 
-      - name: 校验 IPA 内容
+      - name: Verify IPA
         shell: bash
         if: always()
         run: |
-          echo "---- IPA 内容 ----"
           unzip -l "${APP_NAME}-tvos-unsigned.ipa" || true
           if unzip -l "${APP_NAME}-tvos-unsigned.ipa" | grep -q "Payload/.*\.app"; then
-            echo "✅ IPA 结构校验通过"
+            echo "IPA OK"
           else
-            echo "::error::IPA 结构异常"
+            echo "::error::IPA bad"
             exit 1
           fi
 
-      - name: 上传构建产物
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         if: always()
         with:
