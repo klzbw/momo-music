@@ -77,8 +77,11 @@ jobs:
           set -e
           SDK_PATH=$(xcrun --sdk appletvos --show-sdk-path)
           echo "tvOS SDK path: $SDK_PATH"
-          ls "$SDK_PATH/System/Library/Frameworks/" | head -40
-          ls "$SDK_PATH/System/Library/Frameworks/" | grep -i web || echo "no WebKit in Frameworks, trying developer dir"
+          echo "=== searching for WebKit ==="
+          find "$SDK_PATH" -name "WebKit*" -maxdepth 5 2>/dev/null || true
+          find "$SDK_PATH" -name "WKWebView*" 2>/dev/null || true
+          ls "$SDK_PATH/System/Library/Frameworks/" | grep -iE "web|browser" || echo "no web/browser framework found"
+          echo "=== end search ==="
           xcodebuild build \
             -project "build_tvos/${APP_NAME}.xcodeproj" \
             -scheme "${SCHEME}" \
@@ -90,8 +93,8 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
             ONLY_ACTIVE_ARCH=NO \
-            FRAMEWORK_SEARCH_PATHS="$(SDK_PATH)/System/Library/Frameworks" \
-            HEADER_SEARCH_PATHS="$(SDK_PATH)/System/Library/Frameworks" \
+            FRAMEWORK_SEARCH_PATHS="${SDK_PATH}/System/Library/Frameworks" \
+            HEADER_SEARCH_PATHS="${SDK_PATH}/System/Library/Frameworks" \
             BUILD_DIR="${{ github.workspace }}/build" 2>&1 | tee build.log || {
               echo "::error::tvOS build failed, last 80 lines:"
               tail -80 build.log
