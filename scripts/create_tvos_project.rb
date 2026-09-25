@@ -1,0 +1,200 @@
+#!/usr/bin/env ruby
+# 创建一个最小的 tvOS WKWebView 工程，加载本地 web 资源
+# 用法: ruby create_tvos_project.rb <project_dir> <web_dist_dir> <product_name>
+require 'xcodeproj'
+require 'fileutils'
+
+project_dir = ARGV[0]
+web_dist = File.expand_path(ARGV[1])
+product_name = ARGV[2] || 'momo-music'
+bundle_id = 'com.klzbw.momomusic'
+
+FileUtils.mkdir_p(project_dir)
+project_path = File.join(project_dir, "#{product_name}.xcodeproj")
+
+project = Xcodeproj::Project.new(project_path)
+
+# 主 group
+main_group = project.main_group.new_group(product_name, product_name)
+
+# 创建 target
+target = project.new_target(:application, product_name, :tvos, '17.0')
+target.product_type = 'com.apple.product-type.application'
+
+# 配置 build settings
+target.build_configurations.each do |config|
+  config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = bundle_id
+  config.build_settings['PRODUCT_NAME'] = product_name
+  config.build_settings['SDKROOT'] = 'appletvos'
+  config.build_settings['SUPPORTED_PLATFORMS'] = 'appletvos'
+  config.build_settings['TARGETED_DEVICE_FAMILY'] = '3'
+  config.build_settings['TVOS_DEPLOYMENT_TARGET'] = '17.0'
+  config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+  config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+  config.build_settings['CODE_SIGN_IDENTITY'] = ''
+  config.build_settings['INFOPLIST_FILE'] = "#{product_name}/Info.plist"
+  config.build_settings['LD_RUNPATH_SEARCH_PATHS'] = '$(inherited) @executable_path/Frameworks'
+  config.build_settings['SWIFT_VERSION'] = '5.0'
+  config.build_settings['DEVELOPMENT_TEAM'] = ''
+end
+
+# App 源码目录
+app_dir = File.join(project_dir, product_name)
+FileUtils.mkdir_p(app_dir)
+
+# main.swift - tvOS 入口 + WKWebView
+main_swift = <<~SWIFT
+import AppKit
+import WebKit
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    var window: NSWindow?
+    var webView: WKWebView?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // tvOS 没有 NSWindow，用 UIWindow
+    }
+}
+SWIFT
+
+# tvOS 用 UIKit
+main_swift = <<~SWIFT
+import UIKit
+import WebKit
+
+@main
+class AppDelegate: UIResponder, UIApplicationDelegate {
+    var window: UIWindow?
+
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        window = UIWindow(frame: UIScreen.main.bounds)
+
+        let webConfig = WKWebViewConfiguration()
+        webConfig.allowsInlineMediaPlayback = true
+        webConfig.mediaPlaybackRequiresUserAction = false
+        webConfig.allowsAirPlayForMediaPlayback = true
+
+        let webView = WKWebView(frame: UIScreen.main.bounds, configuration: webConfig)
+        webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        webView.backgroundColor = .black
+        webView.scrollView.bounces = false
+
+        if let indexURL = Bundle.main.url(forResource: "public/index", withExtension: "html") {
+            webView.loadFileURL(indexURL, allowingReadAccessTo: indexURL.deletingLastPathComponent())
+        }
+
+        let vc = UIViewController()
+        vc.view = webView
+        window?.rootViewController = vc
+        window?.makeKeyAndVisible()
+        return true
+    }
+}
+SWIFT
+
+File.write(File.join(app_dir, 'main.swift'), main_swift)
+
+# Info.plist
+info_plist = <<~PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>zh_CN</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>UILaunchStoryboardName</key>
+    <string></string>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>audio</string>
+    </array>
+</dict>
+</plist>
+PLIST
+
+File.write(File.join(app_dir, 'Info.plist'), info_plist)
+
+# 把 web 资源复制到 app 目录下的 public/
+public_dir = File.join(app_dir, 'public')
+FileUtils.mkdir_p(public_dir)
+FileUtils.cp_r(File.join(web_dist, '.'), public_dir)
+puts "Copied web assets: #{Dir.entries(public_dir).inspect}"
+
+# 把源码和资源加进 target
+main_file_ref = main_group.new_reference('main.swift')
+target.add_file_references([main_file_ref])
+
+# public/ 文件夹作为 bundle resource（阶段文件）
+public_ref = main_group.new_reference('public')
+public_ref.source_tree = '<group>'
+# 把 public 下所有文件作为资源
+resource_files = Dir.glob(File.join(public_dir, '**', '*')).select { |f| File.file?(f) }
+resource_refs = resource_files.map do |f|
+  main_group.new_reference(File.join('public', Pathname.new(f).relative_path_from(app_dir).to_s))
+end
+target.add_resources(resource_refs)
+
+# 保存工程
+project.save
+
+# 创建 scheme
+scheme_dir = File.join(project_path, 'xcshareddata/xcschemes')
+FileUtils.mkdir_p(scheme_dir)
+scheme_path = File.join(scheme_dir, "#{product_name}.xcscheme")
+
+scheme_xml = <<~SCHEME
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme LastUpgradeVersion="1600" version="1.7">
+   <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES">
+      <BuildActionEntries>
+         <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="NO" buildForArchiving="YES" buildForAnalyzing="YES">
+            <BuildableReference
+               BuildableIdentifier="primary"
+               BlueprintIdentifier="#{target.uuid}"
+               BuildableName="#{product_name}.app"
+               BlueprintName="#{product_name}"
+               ReferencedContainer="container:#{File.basename(project_path)}">
+            </BuildableReference>
+         </BuildActionEntry>
+      </BuildActionEntries>
+   </BuildAction>
+   <LaunchAction
+      buildConfiguration="Release"
+      selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB"
+      launchStyle="0"
+      useCustomWorkingDirectory="NO"
+      ignoresPersistentStateOnLaunch="NO"
+      debugDocumentVersioning="YES"
+      debugServiceExtension="internal"
+      allowLocationSimulation="YES">
+   </LaunchAction>
+</Scheme>
+SCHEME
+
+File.write(scheme_path, scheme_xml)
+puts "Created tvOS project: #{project_path}"
+puts "Scheme: #{product_name}"

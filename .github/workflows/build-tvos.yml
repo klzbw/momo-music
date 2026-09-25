@@ -1,6 +1,5 @@
 # =============================================================================
-# 构建未签名 iOS/tvOS IPA（闭环版）
-# 先产出 iOS IPA 验证链路，tvOS target 后续在 Xcode 工程内切换
+# 构建未签名 tvOS IPA（独立 WKWebView 工程，不依赖 Capacitor）
 # =============================================================================
 name: Build tvOS IPA (Unsigned)
 
@@ -20,14 +19,14 @@ permissions:
   contents: write
 
 jobs:
-  build-ios:
-    name: Build iOS/tvOS Unsigned IPA
+  build-tvos:
+    name: Build tvOS Unsigned IPA
     runs-on: macos-latest
 
     env:
       NODE_VERSION: '22'
       APP_NAME: 'momo-music'
-      SCHEME: 'App'
+      SCHEME: 'momo-music'
 
     steps:
       - name: Checkout
@@ -43,7 +42,7 @@ jobs:
         run: |
           set -e
           xcodebuild -version
-          xcodebuild -showsdks | grep -E "iphoneos|appletvos" || true
+          xcodebuild -showsdks | grep appletvos
 
       - name: Install project deps
         shell: bash
@@ -52,14 +51,6 @@ jobs:
           npm install -g yarn@1.22.22
           yarn install --ignore-scripts || true
 
-      - name: Install Capacitor 6
-        shell: bash
-        run: |
-          set -e
-          yarn add @capacitor/core@^6.2.0 || true
-          yarn add -D @capacitor/cli@^6.2.0 @capacitor/ios@^6.2.0 || true
-          npx cap --version
-
       - name: Build web assets
         shell: bash
         run: |
@@ -67,67 +58,26 @@ jobs:
           npx vite build || echo "vite build failed, using placeholder"
           if [ ! -f dist/index.html ]; then
             mkdir -p dist
-            echo '<!doctype html><html><head><meta charset="utf-8"><title>momo-music</title></head><body><h1>momo-music</h1></body></html>' > dist/index.html
+            echo '<!doctype html><html><head><meta charset="utf-8"><title>momo-music</title></head><body style="background:#000;color:#fff"><h1>momo-music</h1></body></html>' > dist/index.html
           fi
           ls -la dist
 
-      - name: Add iOS platform
-        shell: bash
-        run: |
-          set -e
-          if [ ! -d ios ]; then
-            npx cap add ios || exit 1
-          fi
-          ls -la ios/App
-
-      - name: Cap sync ios
-        shell: bash
-        run: |
-          set -e
-          npx cap sync ios || true
-
-      - name: Locate Xcode workspace
-        id: locate
-        shell: bash
-        run: |
-          set -e
-          WS=$(find . -name "App.xcworkspace" -type d | head -n1)
-          if [ -z "$WS" ]; then
-            echo "::error::no App.xcworkspace found"
-            exit 1
-          fi
-          echo "workspace=$WS" >> $GITHUB_OUTPUT
-          echo "workspace: $WS"
-
-      - name: Install pods
-        shell: bash
-        run: |
-          set -e
-          POD_DIR=$(dirname "${{ steps.locate.outputs.workspace }}")
-          cd "$POD_DIR"
-          pod install || echo "pod install failed"
-
-      - name: Add tvOS target to Xcode project
+      - name: Create tvOS Xcode project
         shell: bash
         run: |
           set -e
           gem install xcodeproj --no-document
-          XCODEPROJ="${{ steps.locate.outputs.workspace }}/../project.pbxproj"
-          # locate 步骤给的是 App.xcworkspace，需要回到上层找 .xcodeproj
-          PROJ_DIR=$(dirname "${{ steps.locate.outputs.workspace }}")
-          XCODEPROJ_DIR=$(find "$PROJ_DIR" -maxdepth 2 -name "*.xcodeproj" -type d | head -n1)
-          echo "xcodeproj dir: $XCODEPROJ_DIR"
-          ruby scripts/add_tvos_target.rb "$XCODEPROJ_DIR" "App" "App-tvOS"
-          echo "=== available schemes ==="
-          xcodebuild -project "$XCODEPROJ_DIR" -list || true
+          mkdir -p build_tvos
+          ruby scripts/create_tvos_project.rb build_tvos dist "${APP_NAME}"
+          ls -la build_tvos
 
-      - name: Build unsigned .app (tvOS)
+      - name: Build tvOS .app
         shell: bash
         run: |
           set -e
           xcodebuild build \
-            -workspace "${{ steps.locate.outputs.workspace }}" \
-            -scheme "App-tvOS" \
+            -project "build_tvos/${APP_NAME}.xcodeproj" \
+            -scheme "${SCHEME}" \
             -configuration "${{ inputs.configuration }}" \
             -sdk appletvos \
             -destination 'generic/platform=tvOS' \
@@ -137,8 +87,8 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="" \
             ONLY_ACTIVE_ARCH=NO \
             BUILD_DIR="${{ github.workspace }}/build" 2>&1 | tee build.log || {
-              echo "::error::tvOS build failed, last 60 lines:"
-              tail -60 build.log
+              echo "::error::tvOS build failed, last 80 lines:"
+              tail -80 build.log
               exit 1
             }
 
@@ -152,6 +102,8 @@ jobs:
             echo "::error::no .app found"
             exit 1
           fi
+          echo "Found app: $APP_PATH"
+          ls -la "$APP_PATH"
           cp -R "${APP_PATH}" Payload/
           zip -r "${APP_NAME}-tvos-unsigned.ipa" Payload
           ls -lh "${APP_NAME}-tvos-unsigned.ipa"
