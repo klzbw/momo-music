@@ -80,7 +80,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         webView.backgroundColor = .black
         webView.scrollView.bounces = false
 
-        if let indexURL = Bundle.main.url(forResource: "public/index", withExtension: "html") {
+        if let indexURL = Bundle.main.url(forResource: "index", withExtension: "html") {
             webView.loadFileURL(indexURL, allowingReadAccessTo: indexURL.deletingLastPathComponent())
         }
 
@@ -148,14 +148,15 @@ main_file_ref = main_group.new_reference('main.swift')
 target.add_file_references([main_file_ref])
 
 # public/ 文件夹作为 bundle resource（阶段文件）
-public_ref = main_group.new_reference('public')
-public_ref.source_tree = '<group>'
-# 把 public 下所有文件作为资源
+public_group = main_group.new_group('public', 'public')
+# 把 public 下所有文件作为资源（相对 app_dir 的路径，例如 index.html, assets/xxx.js）
 resource_files = Dir.glob(File.join(public_dir, '**', '*')).select { |f| File.file?(f) }
 resource_refs = resource_files.map do |f|
-  main_group.new_reference(File.join('public', Pathname.new(f).relative_path_from(app_dir).to_s))
+  rel = Pathname.new(f).relative_path_from(public_dir).to_s
+  public_group.new_reference(rel)
 end
 target.add_resources(resource_refs)
+puts "Added #{resource_refs.size} resource files"
 
 # 保存工程
 project.save
