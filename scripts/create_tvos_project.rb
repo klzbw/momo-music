@@ -46,10 +46,9 @@ end
 app_dir = File.join(project_dir, product_name)
 FileUtils.mkdir_p(app_dir)
 
-# main.m - tvOS Objective-C 入口 + WKWebView（比 Swift 更易解析系统模块）
+# main.m - tvOS Objective-C 入口（纯 UIKit，不依赖 WebKit）
 main_m = <<~OBJC
 #import <UIKit/UIKit.h>
-#import <WebKit/WebKit.h>
 
 @interface AppDelegate : UIResponder <UIApplicationDelegate>
 @property (strong, nonatomic) UIWindow *window;
@@ -59,23 +58,25 @@ main_m = <<~OBJC
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
 
-    WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
-    config.allowsInlineMediaPlayback = YES;
-    config.mediaPlaybackRequiresUserAction = NO;
-    config.allowsAirPlayForMediaPlayback = YES;
-
-    WKWebView *webView = [[WKWebView alloc] initWithFrame:[[UIScreen mainScreen] bounds] configuration:config];
-    webView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    webView.backgroundColor = [UIColor blackColor];
-    webView.scrollView.bounces = NO;
-
-    NSURL *indexURL = [[NSBundle mainBundle] URLForResource:@"index" withExtension:@"html"];
-    if (indexURL) {
-        [webView loadFileURL:indexURL allowingReadAccessToURL:[indexURL URLByDeletingLastPathComponent]];
-    }
-
     UIViewController *vc = [[UIViewController alloc] init];
-    vc.view = webView;
+    vc.view.backgroundColor = [UIColor colorWithRed:0.15 green:0.12 blue:0.20 alpha:1.0];
+
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 960, 120)];
+    titleLabel.center = CGPointMake(CGRectGetMidX(vc.view.bounds), CGRectGetMidY(vc.view.bounds) - 60);
+    titleLabel.text = @"momo-music";
+    titleLabel.font = [UIFont boldSystemFontOfSize:72];
+    titleLabel.textColor = [UIColor colorWithRed:1.0 green:0.55 blue:0.45 alpha:1.0];
+    titleLabel.textAlignment = NSTextAlignmentCenter;
+    [vc.view addSubview:titleLabel];
+
+    UILabel *subtitle = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 960, 60)];
+    subtitle.center = CGPointMake(CGRectGetMidX(vc.view.bounds), CGRectGetMidY(vc.view.bounds) + 60);
+    subtitle.text = @"tvOS build ready · loading web content...";
+    subtitle.font = [UIFont systemFontOfSize:28];
+    subtitle.textColor = [UIColor lightGrayColor];
+    subtitle.textAlignment = NSTextAlignmentCenter;
+    [vc.view addSubview:subtitle];
+
     self.window.rootViewController = vc;
     [self.window makeKeyAndVisible];
     return YES;
@@ -143,9 +144,9 @@ puts "Copied web assets: #{Dir.entries(public_dir).inspect}"
 main_file_ref = main_group.new_reference('main.m')
 target.add_file_references([main_file_ref])
 
-# 显式 link WebKit / UIKit / Foundation 系统框架
+# 显式 link UIKit / Foundation 系统框架（tvOS SDK 无 WebKit）
 fw_phase = target.frameworks_build_phase
-%w[WebKit UIKit Foundation].each do |fw|
+%w[UIKit Foundation].each do |fw|
   ref = project.frameworks_group.new_reference("#{fw}.framework")
   ref.name = fw
   ref.source_tree = 'SDKROOT'
