@@ -77,7 +77,8 @@ jobs:
           set -e
           SDK_PATH=$(xcrun --sdk appletvos --show-sdk-path)
           echo "tvOS SDK path: $SDK_PATH"
-          ls "$SDK_PATH/System/Library/Frameworks/" | grep -i web
+          ls "$SDK_PATH/System/Library/Frameworks/" | head -40
+          ls "$SDK_PATH/System/Library/Frameworks/" | grep -i web || echo "no WebKit in Frameworks, trying developer dir"
           xcodebuild build \
             -project "build_tvos/${APP_NAME}.xcodeproj" \
             -scheme "${SCHEME}" \
