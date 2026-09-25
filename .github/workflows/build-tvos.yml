@@ -107,13 +107,27 @@ jobs:
           cd "$POD_DIR"
           pod install || echo "pod install failed"
 
+      - name: Add tvOS target to Xcode project
+        shell: bash
+        run: |
+          set -e
+          gem install xcodeproj --no-document
+          XCODEPROJ="${{ steps.locate.outputs.workspace }}/../project.pbxproj"
+          # locate 步骤给的是 App.xcworkspace，需要回到上层找 .xcodeproj
+          PROJ_DIR=$(dirname "${{ steps.locate.outputs.workspace }}")
+          XCODEPROJ_DIR=$(find "$PROJ_DIR" -maxdepth 2 -name "*.xcodeproj" -type d | head -n1)
+          echo "xcodeproj dir: $XCODEPROJ_DIR"
+          ruby scripts/add_tvos_target.rb "$XCODEPROJ_DIR" "App" "App-tvOS"
+          echo "=== available schemes ==="
+          xcodebuild -project "$XCODEPROJ_DIR" -list || true
+
       - name: Build unsigned .app (tvOS)
         shell: bash
         run: |
           set -e
           xcodebuild build \
             -workspace "${{ steps.locate.outputs.workspace }}" \
-            -scheme "${{ env.SCHEME }}" \
+            -scheme "App-tvOS" \
             -configuration "${{ inputs.configuration }}" \
             -sdk appletvos \
             -destination 'generic/platform=tvOS' \
