@@ -44,21 +44,6 @@ FileUtils.mkdir_p(app_dir)
 
 # main.swift - tvOS 入口 + WKWebView
 main_swift = <<~SWIFT
-import AppKit
-import WebKit
-
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    var window: NSWindow?
-    var webView: WKWebView?
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        // tvOS 没有 NSWindow，用 UIWindow
-    }
-}
-SWIFT
-
-# tvOS 用 UIKit
-main_swift = <<~SWIFT
 import UIKit
 import WebKit
 
@@ -146,6 +131,16 @@ puts "Copied web assets: #{Dir.entries(public_dir).inspect}"
 # 把源码和资源加进 target
 main_file_ref = main_group.new_reference('main.swift')
 target.add_file_references([main_file_ref])
+
+# 显式 link WebKit / UIKit / Foundation 系统框架
+fw_phase = target.frameworks_build_phase
+%w[WebKit UIKit Foundation].each do |fw|
+  ref = project.frameworks_group.new_reference("#{fw}.framework")
+  ref.name = fw
+  ref.source_tree = 'SDKROOT'
+  ref.path = "System/Library/Frameworks/#{fw}.framework"
+  fw_phase.add_file_reference(ref)
+end
 
 # public/ 文件夹作为 bundle resource（阶段文件）
 public_group = main_group.new_group('public', 'public')
