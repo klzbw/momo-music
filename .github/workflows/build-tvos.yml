@@ -75,6 +75,9 @@ jobs:
         shell: bash
         run: |
           set -e
+          SDK_PATH=$(xcrun --sdk appletvos --show-sdk-path)
+          echo "tvOS SDK path: $SDK_PATH"
+          ls "$SDK_PATH/System/Library/Frameworks/" | grep -i web
           xcodebuild build \
             -project "build_tvos/${APP_NAME}.xcodeproj" \
             -scheme "${SCHEME}" \
@@ -86,6 +89,8 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
             ONLY_ACTIVE_ARCH=NO \
+            FRAMEWORK_SEARCH_PATHS="$(SDK_PATH)/System/Library/Frameworks" \
+            HEADER_SEARCH_PATHS="$(SDK_PATH)/System/Library/Frameworks" \
             BUILD_DIR="${{ github.workspace }}/build" 2>&1 | tee build.log || {
               echo "::error::tvOS build failed, last 80 lines:"
               tail -80 build.log
