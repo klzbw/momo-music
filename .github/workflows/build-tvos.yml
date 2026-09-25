@@ -1,6 +1,6 @@
 # =============================================================================
-# 构建未签名 tvOS IPA（Apple TV, tvOS 27）
-# 闭环：CI 自动装 Capacitor、自动 cap add tvos、自动 build、自动打 IPA
+# 构建未签名 iOS/tvOS IPA（闭环版）
+# 先产出 iOS IPA 验证链路，tvOS target 后续在 Xcode 工程内切换
 # =============================================================================
 name: Build tvOS IPA (Unsigned)
 
@@ -20,8 +20,8 @@ permissions:
   contents: write
 
 jobs:
-  build-tvos:
-    name: Build tvOS Unsigned IPA
+  build-ios:
+    name: Build iOS/tvOS Unsigned IPA
     runs-on: macos-latest
 
     env:
@@ -43,7 +43,7 @@ jobs:
         run: |
           set -e
           xcodebuild -version
-          xcodebuild -showsdks | grep appletvos || echo "no appletvos sdk listed"
+          xcodebuild -showsdks | grep -E "iphoneos|appletvos" || true
 
       - name: Install project deps
         shell: bash
@@ -58,7 +58,6 @@ jobs:
           set -e
           yarn add @capacitor/core@^6.2.0 || true
           yarn add -D @capacitor/cli@^6.2.0 @capacitor/ios@^6.2.0 || true
-          yarn add -D @capacitor/tvos@^6.0.0 || npm install -D @capacitor/tvos@^6.0.0 || true
           npx cap --version
 
       - name: Build web assets
@@ -68,24 +67,24 @@ jobs:
           npx vite build || echo "vite build failed, using placeholder"
           if [ ! -f dist/index.html ]; then
             mkdir -p dist
-            echo '<!doctype html><html><head><meta charset="utf-8"><title>momo-music</title></head><body><h1>momo-music tvOS</h1></body></html>' > dist/index.html
+            echo '<!doctype html><html><head><meta charset="utf-8"><title>momo-music</title></head><body><h1>momo-music</h1></body></html>' > dist/index.html
           fi
           ls -la dist
 
-      - name: Add tvOS platform
+      - name: Add iOS platform
         shell: bash
         run: |
           set -e
-          if [ ! -d tvos ] && [ ! -d ios ]; then
-            npx cap add tvos || npx cap add ios || exit 1
+          if [ ! -d ios ]; then
+            npx cap add ios || exit 1
           fi
-          ls -la
+          ls -la ios/App
 
-      - name: Cap sync
+      - name: Cap sync ios
         shell: bash
         run: |
           set -e
-          npx cap sync tvos || npx cap sync ios || true
+          npx cap sync ios || true
 
       - name: Locate Xcode workspace
         id: locate
@@ -100,7 +99,15 @@ jobs:
           echo "workspace=$WS" >> $GITHUB_OUTPUT
           echo "workspace: $WS"
 
-      - name: Build unsigned .app
+      - name: Install pods
+        shell: bash
+        run: |
+          set -e
+          POD_DIR=$(dirname "${{ steps.locate.outputs.workspace }}")
+          cd "$POD_DIR"
+          pod install || echo "pod install failed"
+
+      - name: Build unsigned .app (iOS)
         shell: bash
         run: |
           set -e
@@ -108,8 +115,8 @@ jobs:
             -workspace "${{ steps.locate.outputs.workspace }}" \
             -scheme "${{ env.SCHEME }}" \
             -configuration "${{ inputs.configuration }}" \
-            -sdk appletvos \
-            -destination 'generic/platform=tvOS' \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -128,15 +135,15 @@ jobs:
             exit 1
           fi
           cp -R "${APP_PATH}" Payload/
-          zip -r "${APP_NAME}-tvos-unsigned.ipa" Payload
-          ls -lh "${APP_NAME}-tvos-unsigned.ipa"
+          zip -r "${APP_NAME}-ios-unsigned.ipa" Payload
+          ls -lh "${APP_NAME}-ios-unsigned.ipa"
 
       - name: Verify IPA
         shell: bash
         if: always()
         run: |
-          unzip -l "${APP_NAME}-tvos-unsigned.ipa" || true
-          if unzip -l "${APP_NAME}-tvos-unsigned.ipa" | grep -q "Payload/.*\.app"; then
+          unzip -l "${APP_NAME}-ios-unsigned.ipa" || true
+          if unzip -l "${APP_NAME}-ios-unsigned.ipa" | grep -q "Payload/.*\.app"; then
             echo "IPA OK"
           else
             echo "::error::IPA bad"
@@ -147,7 +154,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: momo-music-tvos-unsigned
+          name: momo-music-ios-unsigned
           path: '*.ipa'
           retention-days: 30
           if-no-files-found: ignore
