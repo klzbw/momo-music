@@ -107,7 +107,7 @@ jobs:
           cd "$POD_DIR"
           pod install || echo "pod install failed"
 
-      - name: Build unsigned .app (iOS)
+      - name: Build unsigned .app (tvOS)
         shell: bash
         run: |
           set -e
@@ -115,14 +115,18 @@ jobs:
             -workspace "${{ steps.locate.outputs.workspace }}" \
             -scheme "${{ env.SCHEME }}" \
             -configuration "${{ inputs.configuration }}" \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
+            -sdk appletvos \
+            -destination 'generic/platform=tvOS' \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
             ONLY_ACTIVE_ARCH=NO \
-            BUILD_DIR="${{ github.workspace }}/build"
+            BUILD_DIR="${{ github.workspace }}/build" 2>&1 | tee build.log || {
+              echo "::error::tvOS build failed, last 60 lines:"
+              tail -60 build.log
+              exit 1
+            }
 
       - name: Package IPA
         shell: bash
@@ -135,15 +139,15 @@ jobs:
             exit 1
           fi
           cp -R "${APP_PATH}" Payload/
-          zip -r "${APP_NAME}-ios-unsigned.ipa" Payload
-          ls -lh "${APP_NAME}-ios-unsigned.ipa"
+          zip -r "${APP_NAME}-tvos-unsigned.ipa" Payload
+          ls -lh "${APP_NAME}-tvos-unsigned.ipa"
 
       - name: Verify IPA
         shell: bash
         if: always()
         run: |
-          unzip -l "${APP_NAME}-ios-unsigned.ipa" || true
-          if unzip -l "${APP_NAME}-ios-unsigned.ipa" | grep -q "Payload/.*\.app"; then
+          unzip -l "${APP_NAME}-tvos-unsigned.ipa" || true
+          if unzip -l "${APP_NAME}-tvos-unsigned.ipa" | grep -q "Payload/.*\.app"; then
             echo "IPA OK"
           else
             echo "::error::IPA bad"
@@ -154,7 +158,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: momo-music-ios-unsigned
+          name: momo-music-tvos-unsigned
           path: '*.ipa'
           retention-days: 30
           if-no-files-found: ignore
