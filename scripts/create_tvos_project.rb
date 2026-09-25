@@ -38,6 +38,8 @@ target.build_configurations.each do |config|
   config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
   config.build_settings['CLANG_ENABLE_OBJC_ARC'] = 'YES'
   config.build_settings['COMBINE_HIDPI_IMAGES'] = 'NO'
+  config.build_settings['FRAMEWORK_SEARCH_PATHS'] = '$(inherited) $(SDKROOT)/System/Library/Frameworks'
+  config.build_settings['HEADER_SEARCH_PATHS'] = '$(inherited) $(SDKROOT)/System/Library/Frameworks'
 end
 
 # App 源码目录
